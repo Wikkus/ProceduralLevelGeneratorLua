@@ -1,15 +1,17 @@
-maxRecursion = 20
+--The max amount of times BSP will use recursion
+maxRecursion = 4
+--The corners of the rooms
 topLeft = 1
 bottomLeft = 2
 bottomRight = 3
 topRight = 4
-rooms = 1
 
 nodes = {}
-
-roomSizeLimit = 5
+minimumRoomSize = 5
+roomSizeLimit = 0.66
 splitPercentage = { 42, 58 }
 
+--Keeps track of how many times the rooms has split horizontally and vertically
 amountVerticalRooms = 0
 amountHorizontalRooms = 0
 roomDifferenceLimit = 2
@@ -18,6 +20,7 @@ doorTile = " +"
 floorTile = " ."
 wallTile = " #"
 
+--The grid used to keep track of the coordinates and size of the level
 grid = {}
 grid.width = 50
 grid.height = 50
@@ -36,6 +39,7 @@ function ResetVariables()
 	amountVerticalRooms = 0
 end
 
+--Creates a new node in the BSP
 function CreateNode(isRoot, parent, rect)
     node = {}
     node.leftChild = nil
@@ -43,17 +47,17 @@ function CreateNode(isRoot, parent, rect)
     node.parent = parent
     node.rect = rect
     node.width = rect[topRight].x - rect[topLeft].x
-    node.height = rect[bottomLeft].y - rect[topLeft].y 
-    if(isRoot) then
+    node.height = rect[bottomLeft].y - rect[topLeft].y
+	if(isRoot) then
 	    node.level = 0
     else
-	    if (node.height < 0) 
-    		then node.height = 0 
+	    if (node.height < 0)
+    		then node.height = 0
     	end
     	node.level = parent.level + 1
     end
     node.id = 0
-    node.vertical = PickDirection(node)
+    node.splitVertical = PickDirection(node)
     DrawNode(node)
     return node
 end
@@ -62,53 +66,63 @@ function DrawNode(node)
 	--Loop through the locations the nodes rectangle covers
     local x, y
     for y = node.rect[topLeft].y, node.rect[bottomLeft].y do
-        for x = node.rect[topLeft].x, node.rect[topRight].x do		
+        for x = node.rect[topLeft].x, node.rect[topRight].x do
             if(IsInsideGrid(x, y)) then
-            	if (x == node.rect[topLeft].x or x == node.rect[topRight].x 
-            		or y == node.rect[topLeft].y or y == node.rect[bottomRight].y) then 
+            	if (x == node.rect[topLeft].x or x == node.rect[topRight].x
+            		or y == node.rect[topLeft].y or y == node.rect[bottomRight].y) then
         			--If the position is on the edge of the rectangle it draws a wall "#"
-					grid:set(x, y, wallTile)            	
+					grid:set(x, y, wallTile)
             	else
         			--If not, it draws a floor "."
                 	grid:set(x, y, floorTile)
-            	end		
+            	end
             end
     	end
-    end 
+    end
 end
 
 function SplitNode(node)
-    if (not node or (node.level >= maxRecursion)) then
-        node.id = rooms
-        rooms = rooms + 1
-        return
-    else        
-    	--If the max number of recuirsions is not met, split the node into childNodes 
-        local split = SplitFromNode(node)
-        if (split == nil) then 
-        	return 
-        end
-        --Create two new nodes with the current node as parent
-        local r1,r2 = NodeRects(node, split)
-        node.leftChild = CreateNode(false, node, r1)
-        node.rightChild = CreateNode(false, node, r2)
+	if(node.level > maxRecursion) then
+		return
+	end
+	--Split the node into a left node and right node
+    local split = SplitFromNode(node)
 
-        --Inserts the new nodes in a table and remove the parent node
-        --After all nodes are created, I will loop through this table and place doors
-        table.insert(nodes, node.leftChild)
-        table.insert(nodes, node.rightChild)
-        for i = 1, #nodes do
-        	if(nodes[i] == node) then
-        		table.remove(nodes, i)
-        	end
-        end
-        --Draw every step of the level creation
-        --draw_it(grid)
+	--[[If the split didn't work but room is too large, 
+		it will go through the function until it splits]]
+	while(split == nil) do
+		if(node.width >= grid.width * roomSizeLimit) then
+			node.splitVertical = true
+		elseif(node.height >= grid.height * roomSizeLimit) then
+			node.splitVertical = false
+		else	
+			--If the room is small enough, it returns the function and stops the recusrion
+			return
+		end
+		while(split == nil) do
+			split = SplitFromNode(node)
+		end	
+	end
+	--Create two new nodes with the current node as parent
+	local r1,r2 = NodeRects(node, split)
+	node.leftChild = CreateNode(false, node, r1)
+	node.rightChild = CreateNode(false, node, r2)
 
-        --Using recursion to repeat this function until the max number of recursions is met 
-        SplitNode(node.leftChild)
-        SplitNode(node.rightChild)
-    end
+	--Inserts the new nodes in a table and remove the parent node
+	--After all nodes are created, I will loop through this table and place doors
+	table.insert(nodes, node.leftChild)
+	table.insert(nodes, node.rightChild)
+	for i = 1, #nodes do
+		if(nodes[i] == node) then
+			table.remove(nodes, i)
+		end
+	end
+	--Function that draws every step of the level creation
+	--draw_it(grid)
+
+	--Using recursion to repeat this function until the max number of recursions is met
+	SplitNode(node.leftChild)
+	SplitNode(node.rightChild)
 end
 
 function PickDirection()
@@ -122,34 +136,33 @@ function PickDirection()
 		return false
 	end
 	--if there are not that big of a difference in amount horizontal and vertical rooms, pick a random direction
-    if (math.random(0, 1) == 0) then 
+    if (math.random(0, 1) == 0) then
 		amountVerticalRooms = amountVerticalRooms + 1
-    	return true 
+    	return true
     else
 		amountHorizontalRooms = amountHorizontalRooms + 1
-    	return false 
+    	return false
     end
 end
 
 function SplitFromNode(node)
 	--[[When splitting the node, I calculate a random percentage of the width or height,
 	which will be where the split occurs]]
-
-    if (node.vertical) then
+    if (node.splitVertical) then
         local r = math.floor(((math.random(splitPercentage[1], splitPercentage[2])/100) * node.width))
-        --To make sure the rooms doesn't become to narrow, I set a minimum limit
-        --which makes the rooms at least the size of the roomSizeLimit
-        if (r < roomSizeLimit or r > node.width - roomSizeLimit) then 
-        	return nil 
-        else 
-        	return node.rect[topLeft].x + r 
+        --[[To make sure the rooms doesn't become to narrow or to large, I set a minimum limit
+        which makes the rooms at least the size of the minimumRoomSize]]
+        if (r < minimumRoomSize) then
+        	return nil
+        else
+        	return node.rect[topLeft].x + r
         end
     else
         local r = math.floor(((math.random(splitPercentage[1], splitPercentage[2])/100) * node.height))
-        if (r < roomSizeLimit or r > node.height - roomSizeLimit) then 
-        	return nil 
-        else 
-        	return node.rect[topLeft].y + r 
+        if (r < minimumRoomSize) then
+			return nil
+        else
+        	return node.rect[topLeft].y + r
         end
     end
 end
@@ -157,18 +170,18 @@ end
 function NodeRects(node, split)
     --Creates two rectangles based on the split location and split it vertical or horizontally based on randomness
     local rect1, rect2
-    if node.vertical then
-        rect1 = {[topLeft] = node.rect[topLeft], [bottomLeft] = node.rect[bottomLeft], 
+    if node.splitVertical then
+        rect1 = {[topLeft] = node.rect[topLeft], [bottomLeft] = node.rect[bottomLeft],
         	[topRight] = {x = split, y = node.rect[topRight].y}, [bottomRight] = { x = split, y = node.rect[bottomRight].y}}
 
-        rect2 = {[topLeft] = { x = split, y = node.rect[topLeft].y }, [bottomLeft] = { x = split, y = node.rect[bottomLeft].y}, 
+        rect2 = {[topLeft] = { x = split, y = node.rect[topLeft].y }, [bottomLeft] = { x = split, y = node.rect[bottomLeft].y},
     		[topRight] = node.rect[topRight], [bottomRight] = node.rect[bottomRight]}
         return rect1,rect2
     else
-        rect1 = {[topLeft] = node.rect[topLeft], [topRight] = node.rect[topRight], 
+        rect1 = {[topLeft] = node.rect[topLeft], [topRight] = node.rect[topRight],
         	[bottomLeft] = { x = node.rect[bottomLeft].x, y = split}, [bottomRight] = { x = node.rect[bottomRight].x, y = split}}
 
-        rect2 = {[topLeft] = { x=node.rect[topLeft].x, y = split}, [topRight] = { x = node.rect[topRight].x, 
+        rect2 = {[topLeft] = { x=node.rect[topLeft].x, y = split}, [topRight] = { x = node.rect[topRight].x,
         	y = split}, [bottomLeft] = node.rect[bottomLeft], [bottomRight] = node.rect[bottomRight]}
         return rect1,rect2
     end
@@ -178,70 +191,67 @@ function IsInsideGrid(x, y)
 	return (x >= 1 and x <= grid.width - 1 and y >= 1 and y <= grid.height - 1)
 end
 
-function PlaceDoors()
+function PlaceStuffInRooms()
+	--[[Loops through all rooms that has been are at the end of the BSP tree
+	and add doors around them]]
+	for i = 1, #nodes do
+		PlaceDoors(nodes[i])
+	end
+end
+
+function PlaceDoors(currentNode)
 	local hasDoorTop = false
 	local hasDoorBottom = false
 	local hasDoorLeft = false
 	local hasDoorRight = false
-
 	local xPos = nil
 	local yPos = nil
-
-	--Loops through all the nodes to check where the doors will be placed
-	for i = 1, #nodes do 
-		hasDoorTop = false
-		hasDoorBottom = false
-		hasDoorLeft = false
-		hasDoorRight = false
-
-		--Goes through the walls of the nodes rectangle to determine if there already is a door placed
-		for x =  nodes[i].rect[topLeft].x, nodes[i].rect[topRight].x do
-			if((grid:get(x, nodes[i].rect[topLeft].y)) == doorTile) then
-				hasDoorTop = true			
-			end	
-			if((grid:get(x, nodes[i].rect[bottomLeft].y)) == doorTile) then
-				hasDoorBottom = true		
-			end			
+	--Goes through the walls of the nodes rectangle to determine if there already is a door placed
+	for x =  currentNode.rect[topLeft].x, currentNode.rect[topRight].x do
+		if((grid:get(x, currentNode.rect[topLeft].y)) == doorTile) then
+			hasDoorTop = true
 		end
-		for y =  nodes[i].rect[topLeft].y, nodes[i].rect[bottomLeft].y do
-			if((grid:get(nodes[i].rect[topLeft].x, y)) == doorTile) then
-				hasDoorLeft = true			
-			end	
-			if((grid:get(nodes[i].rect[topRight].x, y)) == doorTile) then
-				hasDoorRight = true
-			end			
+		if((grid:get(x, currentNode.rect[bottomLeft].y)) == doorTile) then
+			hasDoorBottom = true
 		end
-
-
-		--[[If no door is placed, check if the tile is passable around the middle of the wall
-		if it is passable, place a door there]]
-		if(not hasDoorTop) then
-			xPos = math.ceil(nodes[i].rect[topLeft].x + (nodes[i].width * 0.5))
-			yPos = nodes[i].rect[topLeft].y
-			if(IsPassable(xPos, yPos)) then			
-				grid:set(xPos, yPos, " +")
-			end
+	end
+	for y = currentNode.rect[topLeft].y, currentNode.rect[bottomLeft].y do
+		if((grid:get(currentNode.rect[topLeft].x, y)) == doorTile) then
+			hasDoorLeft = true
 		end
-		if(not hasDoorBottom) then
-			xPos = math.ceil(nodes[i].rect[topLeft].x + (nodes[i].width * 0.5))
-			yPos = nodes[i].rect[bottomLeft].y
-			if(IsPassable(xPos, yPos)) then			
-				grid:set(xPos, yPos, " +")
-			end
+		if((grid:get(currentNode.rect[topRight].x, y)) == doorTile) then
+			hasDoorRight = true
 		end
-		if(not hasDoorLeft) then
-			xPos = nodes[i].rect[topLeft].x
-			yPos = math.ceil(nodes[i].rect[topLeft].y + (nodes[i].height * 0.5))
-			if(IsPassable(xPos, yPos)) then			
-				grid:set(xPos, yPos, " +")
-			end
+	end
+	--[[If no door has been placed placed on the specific side of the room,
+	check if the tile is passable around the middle of the wall
+	and place a door there if it is passable]]
+	if(not hasDoorTop) then
+		xPos = math.ceil(currentNode.rect[topLeft].x + (currentNode.width * 0.5))
+		yPos = currentNode.rect[topLeft].y
+		if(IsPassable(xPos, yPos)) then
+			grid:set(xPos, yPos, " +")
 		end
-		if(not hasDoorRight) then
-			xPos = nodes[i].rect[topRight].x
-			yPos = math.ceil(nodes[i].rect[topRight].y + (nodes[i].height * 0.5))
-			if(IsPassable(xPos, yPos)) then			
-				grid:set(xPos, yPos, " +")
-			end
+	end
+	if(not hasDoorBottom) then
+		xPos = math.ceil(currentNode.rect[topLeft].x + (currentNode.width * 0.5))
+		yPos = currentNode.rect[bottomLeft].y
+		if(IsPassable(xPos, yPos)) then
+			grid:set(xPos, yPos, " +")
+		end
+	end
+	if(not hasDoorLeft) then
+		xPos = currentNode.rect[topLeft].x
+		yPos = math.ceil(currentNode.rect[topLeft].y + (currentNode.height * 0.5))
+		if(IsPassable(xPos, yPos)) then
+			grid:set(xPos, yPos, " +")
+		end
+	end
+	if(not hasDoorRight) then
+		xPos = currentNode.rect[topRight].x
+		yPos = math.ceil(currentNode.rect[topRight].y + (currentNode.height * 0.5))
+		if(IsPassable(xPos, yPos)) then
+			grid:set(xPos, yPos, " +")
 		end
 	end
 end
@@ -251,14 +261,12 @@ function IsPassable(x, y)
 	if(not IsInsideGrid(x, y)) then
 		return false
 	end
-
 	--Get the data of the current tile and its neighbours
 	local gridData = grid:get(x, y)
 	local gridDataRight = grid:get(x - 1, y)
 	local gridDataLeft = grid:get(x + 1, y)
 	local gridDataTop = grid:get(x, y - 1)
 	local gridDataBottom = grid:get(x, y + 1)
-
 	--Make sure the current gridData is a wall and check if the top/bottom or left/right neighbors are floor tiles
 	if((gridData == wallTile and gridDataRight == floorTile and gridDataLeft == floorTile)
 		or (gridData == wallTile and gridDataTop == floorTile and gridDataBottom == floorTile)) then
@@ -266,8 +274,6 @@ function IsPassable(x, y)
 	end
 	return false
 end
-
-
 
 function BinarySpaceParitioning()
 	--Resets some variables if BSP is running more than once
@@ -279,9 +285,9 @@ function BinarySpaceParitioning()
 		[bottomRight] = {x = grid.width, y = grid.height},
     	[topRight] = {x = grid.width,y = 0}
 	}
-    SplitNode(CreateNode(true, nil, rect))
-    PlaceDoors()
-
+	--Creates the root node and splits it maxRecursion amount of times
+    SplitNode(CreateNode(true, nil, rect), false)
+    PlaceStuffInRooms()
 end
 
 function DrawGrid(gridToDraw)
@@ -303,6 +309,6 @@ function DrawGrid(gridToDraw)
 	end
 end
 
+--Runs the BSP algorithm and prints the grid created
 BinarySpaceParitioning()
 DrawGrid(grid)
-
