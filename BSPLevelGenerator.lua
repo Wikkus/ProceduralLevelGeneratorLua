@@ -90,15 +90,18 @@ function SplitNode(node)
 
 	--[[If the split didn't work but room is too large, 
 		it will go through the function until it splits]]
-	while(split == nil) do
+	if(split == nil) then
+		--If the room is too wide, it will get split vertically
 		if(node.width >= grid.width * roomSizeLimit) then
 			node.splitVertical = true
+		--If it is too long, it will get split horizontally
 		elseif(node.height >= grid.height * roomSizeLimit) then
 			node.splitVertical = false
 		else	
 			--If the room is small enough, it returns the function and stops the recusrion
 			return
 		end
+		--If the rooms is too big, this will make sure that it splits
 		while(split == nil) do
 			split = SplitFromNode(node)
 		end	
